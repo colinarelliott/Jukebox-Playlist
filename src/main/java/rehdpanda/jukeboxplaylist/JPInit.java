@@ -57,8 +57,6 @@ public class JPInit implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("Jukebox Playlist initializing...");
 
-        JPItems.register();
-
         PayloadTypeRegistry.playC2S().register(JukeboxActionPayload.ID, JukeboxActionPayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(JukeboxActionPayload.ID, (payload, context) -> {
