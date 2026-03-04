@@ -1,0 +1,15 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "rehdpanda.jukeboxplaylist.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+		"JukeboxBlockEntityMixin",
+        "JukeboxBlockMixin"
+	],
+	"client": [
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
