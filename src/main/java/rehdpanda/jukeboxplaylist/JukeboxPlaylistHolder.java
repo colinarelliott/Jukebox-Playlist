@@ -1,6 +1,8 @@
 package rehdpanda.jukeboxplaylist;
 import net.minecraft.inventory.SimpleInventory;
 import net.minecraft.item.ItemStack;
+import net.minecraft.world.World;
+import net.minecraft.util.math.BlockPos;
 
 public interface JukeboxPlaylistHolder {
     SimpleInventory getPlaylistInventory();
@@ -12,6 +14,9 @@ public interface JukeboxPlaylistHolder {
     void setPlaylistRepeat(boolean repeat);
     void skipForward();
     void skipBackward();
-    void stopMusicSound(net.minecraft.world.World world, net.minecraft.util.math.BlockPos pos);
+    void stopMusicSound(World world, BlockPos pos);
     void setDisc(ItemStack stack);
+    void togglePlayback();
+    boolean wasPowered();
+    void setWasPowered(boolean powered);
 }

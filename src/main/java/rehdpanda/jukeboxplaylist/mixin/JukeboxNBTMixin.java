@@ -1,23 +1,19 @@
 package rehdpanda.jukeboxplaylist.mixin;
 
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.block.entity.JukeboxBlockEntity;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.JukeboxPlayableComponent;
 import net.minecraft.inventory.Inventories;
+import net.minecraft.inventory.SidedInventory;
 import net.minecraft.inventory.SimpleInventory;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.server.world.ServerWorld;
-import net.minecraft.sound.SoundCategory;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -32,9 +28,13 @@ import java.util.List;
 import java.util.Random;
 
 @Mixin(JukeboxBlockEntity.class)
-public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlaylistHolder {
+public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlaylistHolder, SidedInventory {
     @Shadow
     public abstract void setDisc(ItemStack stack);
+
+    @Shadow
+    public abstract ItemStack getStack();
+
     public JukeboxNBTMixin(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
     }
@@ -52,34 +52,33 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
     @Unique
     private int playlistCooldown = 0;
     @Unique
+    private boolean wasPowered = false;
+    @Unique
     private final Random random = new Random();
 
     @Inject(method = "readData", at = @At("TAIL"))
     private void readPlaylistData(net.minecraft.storage.ReadView view, CallbackInfo ci) {
-        JPInit.LOGGER.info("readPlaylistData called for jukebox at {}", this.pos);
         if (view.getReadView("PlaylistInventory") != null) {
             this.playlistInventory.clear();
             net.minecraft.inventory.Inventories.readData(view.getReadView("PlaylistInventory"), this.playlistInventory.getHeldStacks());
-            JPInit.LOGGER.info("Read playlist inventory at {}", this.pos);
-        } else {
-            JPInit.LOGGER.info("No PlaylistInventory found in ReadView for jukebox at {}", this.pos);
         }
         this.playlistPlaying = view.getBoolean("PlaylistPlaying", false);
         this.playlistShuffle = view.getBoolean("PlaylistShuffle", false);
         this.playlistRepeat = view.getBoolean("PlaylistRepeat", false);
         this.currentPlaylistSlot = view.getInt("CurrentPlaylistSlot", -1);
         this.playlistCooldown = view.getInt("PlaylistCooldown", 0);
+        this.wasPowered = view.getBoolean("WasPowered", false);
     }
 
     @Inject(method = "writeData", at = @At("TAIL"))
     private void writePlaylistData(net.minecraft.storage.WriteView view, CallbackInfo ci) {
-        JPInit.LOGGER.info("writePlaylistData called for jukebox at {}", this.pos);
         net.minecraft.inventory.Inventories.writeData(view.get("PlaylistInventory"), this.playlistInventory.getHeldStacks());
         view.putBoolean("PlaylistPlaying", this.playlistPlaying);
         view.putBoolean("PlaylistShuffle", this.playlistShuffle);
         view.putBoolean("PlaylistRepeat", this.playlistRepeat);
         view.putInt("CurrentPlaylistSlot", this.currentPlaylistSlot);
         view.putInt("PlaylistCooldown", this.playlistCooldown);
+        view.putBoolean("WasPowered", this.wasPowered);
     }
 
     @Inject(method = "tick", at = @At("HEAD"))
@@ -94,10 +93,13 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
         JukeboxNBTMixin mixinImpl = (JukeboxNBTMixin) (Object) blockEntity;
 
         if (!blockEntity.getManager().isPlaying()) {
-            JPInit.LOGGER.info("Jukebox not playing at {} (manager state: {}), starting next", pos, blockEntity.getManager().isPlaying());
-            // Mark dirty to ensure it persists if it was about to stop
             blockEntity.markDirty();
             mixinImpl.playNextFromPlaylist(world, pos, blockEntity);
+        } else {
+            ItemStack stack = blockEntity.getStack();
+            if (stack.isEmpty()) {
+                mixinImpl.playNextFromPlaylist(world, pos, blockEntity);
+            }
         }
     }
 
@@ -115,17 +117,14 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
 
     @Unique
     private void playNextFromPlaylist(World world, BlockPos pos, JukeboxBlockEntity jukebox) {
-        JPInit.LOGGER.info("playNextFromPlaylist called at {}", pos);
         List<Integer> validSlots = new ArrayList<>();
         for (int i = 0; i < playlistInventory.size(); i++) {
             if (!playlistInventory.getStack(i).isEmpty()) {
                 validSlots.add(i);
             }
         }
-        JPInit.LOGGER.info("Valid playlist slots: {}", validSlots);
 
         if (validSlots.isEmpty()) {
-            JPInit.LOGGER.info("Playlist is empty, stopping playback at {}", pos);
             this.playlistPlaying = false;
             return;
         }
@@ -148,19 +147,14 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
         if (nextSlot != -1) {
             this.currentPlaylistSlot = nextSlot;
             ItemStack stack = playlistInventory.getStack(nextSlot);
-            JPInit.LOGGER.info("Selected slot {} with item {} to play at {}", nextSlot, stack, pos);
             
             net.minecraft.block.jukebox.JukeboxSong.getSongEntryFromStack(world.getRegistryManager(), stack).ifPresentOrElse(songEntry -> {
-                // Stop any current music first to avoid "starting new copy"
                 jukebox.getManager().stopPlaying(world, jukebox.getCachedState());
                 world.syncWorldEvent(1011, pos, 0);
                 this.stopMusicSound(world, pos);
                 this.setDisc(ItemStack.EMPTY);
                 world.setBlockState(pos, jukebox.getCachedState().with(net.minecraft.block.JukeboxBlock.HAS_RECORD, false), 3);
                 
-                JPInit.LOGGER.info("Starting song {} at {}", songEntry.getKey().map(k -> k.getValue().toString()).orElse("unknown"), pos);
-                
-                // Set the disc in the jukebox manager to actually start playing
                 this.setDisc(stack.copy());
                 world.setBlockState(pos, jukebox.getCachedState().with(net.minecraft.block.JukeboxBlock.HAS_RECORD, true), 3);
                 if (world instanceof ServerWorld serverWorld) {
@@ -169,12 +163,10 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
                 
                 this.markDirty();
             }, () -> {
-                JPInit.LOGGER.info("Could not resolve song from stack {}, stopping playback at {}", stack, pos);
                 this.playlistPlaying = false;
                 this.markDirty();
             });
         } else {
-            JPInit.LOGGER.info("No next slot found, stopping playback at {}", pos);
             this.playlistPlaying = false;
             this.currentPlaylistSlot = -1;
             this.markDirty();
@@ -264,14 +256,12 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
             this.currentPlaylistSlot = prevSlot;
             ItemStack stack = playlistInventory.getStack(prevSlot);
             net.minecraft.block.jukebox.JukeboxSong.getSongEntryFromStack(world.getRegistryManager(), stack).ifPresentOrElse(songEntry -> {
-                // Stop any current music first to avoid "starting new copy"
                 jukebox.getManager().stopPlaying(world, jukebox.getCachedState());
                 world.syncWorldEvent(1011, pos, 0);
                 this.stopMusicSound(world, pos);
                 this.setDisc(ItemStack.EMPTY);
                 world.setBlockState(pos, jukebox.getCachedState().with(net.minecraft.block.JukeboxBlock.HAS_RECORD, false), 3);
                 
-                // Set the disc in the jukebox manager to actually start playing
                 this.setDisc(stack.copy());
                 world.setBlockState(pos, jukebox.getCachedState().with(net.minecraft.block.JukeboxBlock.HAS_RECORD, true), 3);
                 if (world instanceof ServerWorld serverWorld) {
@@ -280,16 +270,118 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
                 
                 this.markDirty();
             }, () -> {
-                JPInit.LOGGER.info("Could not resolve previous song from stack {}, stopping playback at {}", stack, pos);
                 this.playlistPlaying = false;
                 this.markDirty();
             });
         } else {
-            // If no previous and no repeat, we might want to stop or just stay on current?
-            // Original behavior for next if not found is stop.
             this.playlistPlaying = false;
             this.currentPlaylistSlot = -1;
             this.markDirty();
         }
+    }
+
+    @Override
+    public boolean wasPowered() {
+        return wasPowered;
+    }
+
+    @Override
+    public void setWasPowered(boolean powered) {
+        this.wasPowered = powered;
+    }
+
+    @Override
+    public void togglePlayback() {
+        World world = this.getWorld();
+        BlockPos pos = this.getPos();
+        if (world == null || world.isClient()) return;
+        JukeboxBlockEntity jukebox = (JukeboxBlockEntity) (Object) this;
+
+        boolean playing = !this.playlistPlaying;
+        this.playlistPlaying = playing;
+        if (!playing) {
+            jukebox.getManager().stopPlaying(world, jukebox.getCachedState());
+            world.syncWorldEvent(1011, pos, 0);
+            this.stopMusicSound(world, pos);
+            this.setDisc(ItemStack.EMPTY);
+            world.setBlockState(pos, jukebox.getCachedState().with(net.minecraft.block.JukeboxBlock.HAS_RECORD, false), 3);
+        } else {
+            if (!jukebox.getManager().isPlaying()) {
+                this.skipForward();
+            }
+        }
+        this.markDirty();
+        // Sync state to clients
+        if (world instanceof ServerWorld serverWorld) {
+            JPInit.JukeboxStatePayload statePayload = new JPInit.JukeboxStatePayload(pos, this.playlistPlaying, this.playlistShuffle, this.playlistRepeat);
+            for (net.minecraft.server.network.ServerPlayerEntity player : serverWorld.getPlayers()) {
+                if (player.getBlockPos().isWithinDistance(pos, 64.0)) {
+                    net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, statePayload);
+                }
+            }
+        }
+    }
+
+    // SidedInventory implementation
+    @Override
+    public int[] getAvailableSlots(Direction side) {
+        return new int[]{0, 1, 2, 3, 4, 5, 6, 7, 8};
+    }
+
+    @Override
+    public boolean canInsert(int slot, ItemStack stack, @Nullable Direction dir) {
+        return stack.contains(net.minecraft.component.DataComponentTypes.JUKEBOX_PLAYABLE);
+    }
+
+    @Override
+    public boolean canExtract(int slot, ItemStack stack, Direction dir) {
+        return true;
+    }
+
+    // Inventory delegation to playlistInventory
+    @Override
+    public int size() {
+        return 9;
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return playlistInventory.isEmpty();
+    }
+
+    @Override
+    public ItemStack getStack(int slot) {
+        return playlistInventory.getStack(slot);
+    }
+
+    @Override
+    public ItemStack removeStack(int slot, int amount) {
+        ItemStack stack = playlistInventory.removeStack(slot, amount);
+        if (!stack.isEmpty()) this.markDirty();
+        return stack;
+    }
+
+    @Override
+    public ItemStack removeStack(int slot) {
+        ItemStack stack = playlistInventory.removeStack(slot);
+        if (!stack.isEmpty()) this.markDirty();
+        return stack;
+    }
+
+    @Override
+    public void setStack(int slot, ItemStack stack) {
+        playlistInventory.setStack(slot, stack);
+        this.markDirty();
+    }
+
+    @Override
+    public boolean canPlayerUse(net.minecraft.entity.player.PlayerEntity player) {
+        return playlistInventory.canPlayerUse(player);
+    }
+
+    @Override
+    public void clear() {
+        playlistInventory.clear();
+        this.markDirty();
     }
 }

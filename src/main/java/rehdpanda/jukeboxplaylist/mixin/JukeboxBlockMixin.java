@@ -40,52 +40,78 @@ public class JukeboxBlockMixin {
         if (moved) return;
         BlockEntity be = world.getBlockEntity(pos);
         if (be instanceof JukeboxPlaylistHolder) {
-            JPInit.LOGGER.info("onStateReplaced HEAD: capturing playlist at {}", pos);
+            JPInit.LOGGER.info("onStateReplaced HEAD: capturing playlist at {} [BE: {}, pos: {}]", pos, be, be.getPos());
             // Capture all stacks at HEAD before the block entity is potentially removed
             SimpleInventory inv = ((JukeboxPlaylistHolder) be).getPlaylistInventory();
-            List<Object> data = new ArrayList<>();
+            List<ItemStack> stacks = new ArrayList<>();
             for (int i = 0; i < inv.size(); i++) {
                 ItemStack stack = inv.getStack(i).copy();
                 if (!stack.isEmpty()) {
-                    data.add(stack);
+                    stacks.add(stack);
                     JPInit.LOGGER.info("Captured stack: {} from slot {}", stack, i);
                 }
             }
-            data.add(be); // Add the block entity itself at the end
-            CACHED_DATA.set(data);
+            if (!stacks.isEmpty()) {
+                CACHED_STACKS.set(stacks);
+                JPInit.LOGGER.info("Successfully cached {} stacks in ThreadLocal", stacks.size());
+            } else {
+                CACHED_STACKS.remove();
+                JPInit.LOGGER.info("No items in playlist to cache at HEAD");
+            }
+        } else {
+            JPInit.LOGGER.info("onStateReplaced HEAD at {}: BlockEntity is NOT a JukeboxPlaylistHolder [BE: {}]", pos, be);
+            CACHED_STACKS.remove();
         }
     }
 
     @Unique
-    private static final ThreadLocal<Object> CACHED_DATA = new ThreadLocal<>();
+    private static final ThreadLocal<List<ItemStack>> CACHED_STACKS = new ThreadLocal<>();
 
     @Inject(method = "onStateReplaced", at = @At("TAIL"))
     protected void onJukeboxStateReplacedTail(BlockState state, ServerWorld world, BlockPos pos, boolean moved, CallbackInfo ci) {
         if (moved) return;
         
-        Object captured = CACHED_DATA.get();
-        if (captured instanceof List<?> list) {
-            List<Object> stacks = (List<Object>) captured;
-            BlockState currentState = world.getBlockState(pos);
-            boolean isReplaced = !currentState.isOf(state.getBlock());
-            JPInit.LOGGER.info("onStateReplaced TAIL at {}: isReplaced={}, oldBlock={}, newBlock={}", pos, isReplaced, state.getBlock(), currentState.getBlock());
+        List<ItemStack> stacks = CACHED_STACKS.get();
+        BlockState currentState = world.getBlockState(pos);
+        boolean isReplaced = !currentState.isOf(state.getBlock());
+        JPInit.LOGGER.info("onStateReplaced TAIL at {}: isReplaced={}, oldBlock={}, newBlock={}", pos, isReplaced, state.getBlock(), currentState.getBlock());
 
-            if (isReplaced) {
-                JPInit.LOGGER.info("Jukebox block replaced at {}, dropping playlist items from cached data", pos);
-                
-                JukeboxPlaylistHolder accessor = (JukeboxPlaylistHolder) stacks.remove(stacks.size() - 1);
-                accessor.stopMusicSound(world, pos);
-                world.syncWorldEvent(1011, pos, 0);
-
-                for (Object obj : stacks) {
-                    if (obj instanceof ItemStack stack && !stack.isEmpty()) {
-                        JPInit.LOGGER.info("Dropping captured stack {} at {}", stack, pos);
-                        net.minecraft.block.Block.dropStack(world, pos, stack);
-                    }
+        if (isReplaced) {
+            // Stop music logic (we don't need the BE for this, we have world and pos)
+            net.minecraft.network.packet.s2c.play.StopSoundS2CPacket stopPacket = new net.minecraft.network.packet.s2c.play.StopSoundS2CPacket(null, net.minecraft.sound.SoundCategory.RECORDS);
+            for (net.minecraft.server.network.ServerPlayerEntity player : world.getPlayers()) {
+                if (player.getBlockPos().isWithinDistance(pos, 64.0)) {
+                    player.networkHandler.sendPacket(stopPacket);
                 }
             }
+            world.syncWorldEvent(1011, pos, 0);
+
+            if (stacks != null && !stacks.isEmpty()) {
+                JPInit.LOGGER.info("Jukebox block replaced at {}, dropping playlist items from cached data. Total stacks: {}", pos, stacks.size());
+                for (ItemStack stack : stacks) {
+                    JPInit.LOGGER.info("Dropping captured stack {} at {}", stack, pos);
+                    net.minecraft.block.Block.dropStack(world, pos, stack);
+                }
+            } else {
+                JPInit.LOGGER.info("onStateReplaced TAIL at {}: No cached stacks to drop.", pos);
+            }
+        } else {
+            JPInit.LOGGER.info("onStateReplaced TAIL at {}: Jukebox NOT replaced (probably just property change), skipping drop.", pos);
         }
-        CACHED_DATA.remove();
+        CACHED_STACKS.remove();
+    }
+
+    @Inject(method = "neighborUpdate", at = @At("HEAD"))
+    private void onNeighborUpdate(BlockState state, World world, BlockPos pos, Block sourceBlock, net.minecraft.world.block.WireOrientation wireOrientation, boolean notify, CallbackInfo ci) {
+        if (world.isClient()) return;
+        BlockEntity be = world.getBlockEntity(pos);
+        if (be instanceof JukeboxPlaylistHolder accessor) {
+            boolean isPowered = world.isReceivingRedstonePower(pos);
+            if (isPowered && !accessor.wasPowered()) {
+                accessor.togglePlayback();
+            }
+            accessor.setWasPowered(isPowered);
+        }
     }
 
     @Inject(method = "onUseWithItem", at = @At("HEAD"), cancellable = true)
