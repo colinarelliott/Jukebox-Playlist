@@ -10,13 +10,15 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import rehdpanda.jukeboxplaylist.JPInit;
 import rehdpanda.jukeboxplaylist.JPJukeboxScreenHandler;
-import rehdpanda.jukeboxplaylist.mixin.JukeboxBlockEntityAccessor;
+import rehdpanda.jukeboxplaylist.JukeboxPlaylistHolder;
 
 public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
     private static final Identifier TEXTURE = Identifier.of("minecraft", "textures/gui/container/generic_54.png");
     private ButtonWidget shuffleButton;
     private ButtonWidget repeatButton;
     private ButtonWidget playStopButton;
+    private ButtonWidget skipForwardButton;
+    private ButtonWidget skipBackwardButton;
 
     public JPJukeboxScreen(JPJukeboxScreenHandler handler, PlayerInventory inventory, Text title) {
         super(handler, inventory, title);
@@ -28,22 +30,33 @@ public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
     protected void init() {
         super.init();
         JukeboxBlockEntity jukebox = handler.getJukebox();
+        int offset = 3;
         if (jukebox == null) return;
+
+        // Skip Backward button
+        this.skipBackwardButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("⏮"), button -> {
+            ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 4));
+        }).dimensions(this.x + 12-offset, this.y + 42, 30, 20).build());
 
         // Play/Stop button
         this.playStopButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("▶/■"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 0));
-        }).dimensions(this.x + 38, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 44-offset, this.y + 42, 30, 20).build());
+
+        // Skip Forward button
+        this.skipForwardButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("⏭"), button -> {
+            ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 3));
+        }).dimensions(this.x + 76-offset, this.y + 42, 30, 20).build());
 
         // Shuffle button
         this.shuffleButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("🔀"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 1));
-        }).dimensions(this.x + 73, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 108-offset, this.y + 42, 30, 20).build());
 
         // Repeat button
         this.repeatButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("🔁"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 2));
-        }).dimensions(this.x + 108, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 140-offset, this.y + 42, 30, 20).build());
     }
 
     @Override
@@ -68,7 +81,7 @@ public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
 
         JukeboxBlockEntity jukebox = handler.getJukebox();
         if (jukebox != null) {
-            JukeboxBlockEntityAccessor accessor = (JukeboxBlockEntityAccessor) jukebox;
+            JukeboxPlaylistHolder accessor = (JukeboxPlaylistHolder) jukebox;
             if (accessor.isPlaylistPlaying()) {
                 drawButtonHighlight(context, this.playStopButton);
             }
@@ -78,16 +91,12 @@ public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
             if (accessor.isPlaylistRepeat()) {
                 drawButtonHighlight(context, this.repeatButton);
             }
-
-            context.drawText(this.textRenderer, "Play: " + (accessor.isPlaylistPlaying() ? "ON" : "OFF"), this.x + 8, this.y + 68, 0x404040, false);
-            context.drawText(this.textRenderer, "Shuffle: " + (accessor.isPlaylistShuffle() ? "ON" : "OFF"), this.x + 140, this.y + 40, 0x404040, false);
-            context.drawText(this.textRenderer, "Repeat: " + (accessor.isPlaylistRepeat() ? "ON" : "OFF"), this.x + 140, this.y + 55, 0x404040, false);
         }
         this.drawMouseoverTooltip(context, mouseX, mouseY);
     }
 
     private void drawButtonHighlight(DrawContext context, ButtonWidget button) {
         if (button == null) return;
-        context.fill(button.getX() - 1, button.getY() - 1, button.getX() + button.getWidth() + 1, button.getY() + button.getHeight() + 1, 0x4000FFFF);
+        context.fill(button.getX(), button.getY(), button.getX() + button.getWidth(), button.getY() + button.getHeight(), 0x4000FFFF);
     }
 }

@@ -4,7 +4,7 @@
 	"package": "rehdpanda.jukeboxplaylist.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"mixins": [
-		"JukeboxBlockEntityMixin",
+		"JukeboxNBTMixin",
         "JukeboxBlockMixin"
 	],
 	"client": [

@@ -18,7 +18,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import rehdpanda.jukeboxplaylist.mixin.JukeboxBlockEntityAccessor;
+import rehdpanda.jukeboxplaylist.JukeboxPlaylistHolder;
 
 public class JPInit implements ModInitializer {
     public static final String MOD_ID = "jukebox-playlist";
@@ -32,7 +32,7 @@ public class JPInit implements ModInitializer {
                         BlockPos pos = payload;
                         BlockEntity be = playerInventory.player.getEntityWorld().getBlockEntity(pos);
                         if (be instanceof JukeboxBlockEntity jukebox) {
-                            return new JPJukeboxScreenHandler(syncId, playerInventory, ((JukeboxBlockEntityAccessor) jukebox).getPlaylistInventory(), jukebox);
+                            return new JPJukeboxScreenHandler(syncId, playerInventory, ((JukeboxPlaylistHolder) jukebox).getPlaylistInventory(), jukebox);
                         }
                         return new JPJukeboxScreenHandler(syncId, playerInventory);
                     }, BlockPos.PACKET_CODEC
@@ -53,28 +53,72 @@ public class JPInit implements ModInitializer {
         }
     }
 
+    public record JukeboxStatePayload(BlockPos pos, boolean playing, boolean shuffle, boolean repeat) implements CustomPayload {
+        public static final Id<JukeboxStatePayload> ID = new Id<>(Identifier.of(MOD_ID, "jukebox_state"));
+        public static final PacketCodec<RegistryByteBuf, JukeboxStatePayload> CODEC = PacketCodec.tuple(
+                BlockPos.PACKET_CODEC, JukeboxStatePayload::pos,
+                PacketCodecs.BOOLEAN, JukeboxStatePayload::playing,
+                PacketCodecs.BOOLEAN, JukeboxStatePayload::shuffle,
+                PacketCodecs.BOOLEAN, JukeboxStatePayload::repeat,
+                JukeboxStatePayload::new
+        );
+
+        @Override
+        public Id<? extends CustomPayload> getId() {
+            return ID;
+        }
+    }
+
     @Override
     public void onInitialize() {
         LOGGER.info("Jukebox Playlist initializing...");
 
         PayloadTypeRegistry.playC2S().register(JukeboxActionPayload.ID, JukeboxActionPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(JukeboxStatePayload.ID, JukeboxStatePayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(JukeboxActionPayload.ID, (payload, context) -> {
             context.server().execute(() -> {
                 BlockEntity be = context.player().getEntityWorld().getBlockEntity(payload.pos());
                 if (be instanceof JukeboxBlockEntity jukebox) {
-                    JukeboxBlockEntityAccessor accessor = (JukeboxBlockEntityAccessor) jukebox;
+                    JukeboxPlaylistHolder accessor = (JukeboxPlaylistHolder) jukebox;
+                    LOGGER.info("Handling action {} for jukebox at {}", payload.actionId(), payload.pos());
                     switch (payload.actionId()) {
                         case 0 -> {
                             boolean playing = !accessor.isPlaylistPlaying();
                             accessor.setPlaylistPlaying(playing);
+                            LOGGER.info("Toggled playing to {} for jukebox at {}", playing, payload.pos());
                             if (!playing) {
                                 jukebox.getManager().stopPlaying(be.getWorld(), be.getCachedState());
+                            } else {
+                                // Trigger immediate start if nothing is playing
+                                if (!jukebox.getManager().isPlaying()) {
+                                    LOGGER.info("Jukebox not currently playing, skipping forward to start playlist at {}", payload.pos());
+                                    accessor.skipForward();
+                                } else {
+                                    LOGGER.info("Jukebox already playing, will continue with playlist at {}", payload.pos());
+                                }
                             }
                         }
-                        case 1 -> accessor.setPlaylistShuffle(!accessor.isPlaylistShuffle());
-                        case 2 -> accessor.setPlaylistRepeat(!accessor.isPlaylistRepeat());
+                        case 1 -> {
+                            accessor.setPlaylistShuffle(!accessor.isPlaylistShuffle());
+                            LOGGER.info("Toggled shuffle to {} for jukebox at {}", accessor.isPlaylistShuffle(), payload.pos());
+                        }
+                        case 2 -> {
+                            accessor.setPlaylistRepeat(!accessor.isPlaylistRepeat());
+                            LOGGER.info("Toggled repeat to {} for jukebox at {}", accessor.isPlaylistRepeat(), payload.pos());
+                        }
+                        case 3 -> {
+                            LOGGER.info("Manual skip forward for jukebox at {}", payload.pos());
+                            accessor.skipForward();
+                        }
+                        case 4 -> {
+                            LOGGER.info("Manual skip backward for jukebox at {}", payload.pos());
+                            accessor.skipBackward();
+                        }
                     }
+                    // Notify clients about the state change
+                    ServerPlayNetworking.send(context.player(), new JukeboxStatePayload(payload.pos(), accessor.isPlaylistPlaying(), accessor.isPlaylistShuffle(), accessor.isPlaylistRepeat()));
+                    be.markDirty();
                 }
             });
         });
