@@ -88,9 +88,16 @@ public class JPInit implements ModInitializer {
                             accessor.setPlaylistPlaying(playing);
                             LOGGER.info("Toggled playing to {} for jukebox at {}", playing, payload.pos());
                             if (!playing) {
+                                // STOP sequence
+                                accessor.setPlaylistPlaying(false); // Explicitly set to false before anything else
                                 jukebox.getManager().stopPlaying(be.getWorld(), be.getCachedState());
+                                be.getWorld().syncWorldEvent(1011, payload.pos(), 0);
+                                accessor.stopMusicSound(be.getWorld(), payload.pos());
+                                accessor.setDisc(net.minecraft.item.ItemStack.EMPTY);
+                                be.getWorld().setBlockState(payload.pos(), be.getCachedState().with(net.minecraft.block.JukeboxBlock.HAS_RECORD, false), 3);
+                                be.markDirty();
                             } else {
-                                // Trigger immediate start if nothing is playing
+                                // START sequence (if not already playing)
                                 if (!jukebox.getManager().isPlaying()) {
                                     LOGGER.info("Jukebox not currently playing, skipping forward to start playlist at {}", payload.pos());
                                     accessor.skipForward();
@@ -117,7 +124,16 @@ public class JPInit implements ModInitializer {
                         }
                     }
                     // Notify clients about the state change
-                    ServerPlayNetworking.send(context.player(), new JukeboxStatePayload(payload.pos(), accessor.isPlaylistPlaying(), accessor.isPlaylistShuffle(), accessor.isPlaylistRepeat()));
+                    JukeboxStatePayload statePayload = new JukeboxStatePayload(payload.pos(), accessor.isPlaylistPlaying(), accessor.isPlaylistShuffle(), accessor.isPlaylistRepeat());
+                    if (be.getWorld() instanceof net.minecraft.server.world.ServerWorld serverWorld) {
+                        for (net.minecraft.server.network.ServerPlayerEntity player : serverWorld.getPlayers()) {
+                            if (player.getBlockPos().isWithinDistance(payload.pos(), 64.0)) { // Sync to nearby players
+                                ServerPlayNetworking.send(player, statePayload);
+                            }
+                        }
+                    } else {
+                        ServerPlayNetworking.send(context.player(), statePayload);
+                    }
                     be.markDirty();
                 }
             });
