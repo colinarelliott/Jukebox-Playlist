@@ -81,9 +81,33 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
         view.putBoolean("WasPowered", this.wasPowered);
     }
 
+    @Override
+    public void markRemoved() {
+        // Do not drop here, it's too early for some removal types (like moving blocks or chunk unloading)
+        super.markRemoved();
+    }
+
+    @Inject(method = "dropRecord", at = @At("HEAD"))
+    private void dropPlaylistItems(CallbackInfo ci) {
+        if (this.world != null && !this.world.isClient() && !this.playlistInventory.isEmpty()) {
+            JPInit.LOGGER.info("Jukebox BlockEntity dropRecord called at {}. Dropping playlist items.", this.pos);
+            for (int i = 0; i < this.playlistInventory.size(); i++) {
+                ItemStack stack = this.playlistInventory.getStack(i);
+                if (!stack.isEmpty()) {
+                    net.minecraft.block.Block.dropStack(this.world, this.pos, stack.copy());
+                }
+            }
+            this.playlistInventory.clear();
+        }
+    }
+
     @Inject(method = "tick", at = @At("HEAD"))
     private static void tickPlaylist(World world, BlockPos pos, BlockState state, JukeboxBlockEntity blockEntity, CallbackInfo ci) {
         if (world.isClient()) return;
+
+        // Check if the block at this position is still a jukebox. 
+        // If not, it means it was replaced/broken and our playlist should be dropped if it hasn't been already.
+        // Wait, tick only runs for blocks that ARE there.
 
         JukeboxPlaylistHolder mixin = (JukeboxPlaylistHolder) blockEntity;
         if (!mixin.isPlaylistPlaying()) {
