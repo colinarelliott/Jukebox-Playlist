@@ -55,7 +55,7 @@ public class JPJukeboxScreenHandler extends ScreenHandler {
 
     @Override
     public boolean canUse(PlayerEntity player) {
-        return this.inventory.canPlayerUse(player) && (jukebox == null || (jukebox.getWorld().getBlockEntity(jukebox.getPos()) == jukebox && player.squaredDistanceTo(jukebox.getPos().getX() + 0.5, jukebox.getPos().getY() + 0.5, jukebox.getPos().getZ() + 0.5) <= 64.0));
+        return this.inventory.canPlayerUse(player) && (jukebox == null || (jukebox.getWorld().getBlockEntity(jukebox.getPos()) == jukebox && player.squaredDistanceTo(jukebox.getPos().toCenterPos()) <= 64.0));
     }
 
     @Override
