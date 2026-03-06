@@ -92,6 +92,12 @@ public abstract class JukeboxNBTMixin extends BlockEntity implements JukeboxPlay
         if (this.world != null && !this.world.isClient() && !this.playlistInventory.isEmpty()) {
             JPInit.LOGGER.info("Jukebox BlockEntity dropRecord called at {}. Dropping playlist items.", this.pos);
             for (int i = 0; i < this.playlistInventory.size(); i++) {
+                // If playlist is playing, skip dropping the current slot because it's already in the vanilla record slot
+                // and will be dropped by vanilla's dropRecord logic.
+                if (this.playlistPlaying && i == this.currentPlaylistSlot) {
+                    continue;
+                }
+                
                 ItemStack stack = this.playlistInventory.getStack(i);
                 if (!stack.isEmpty()) {
                     net.minecraft.block.Block.dropStack(this.world, this.pos, stack.copy());
