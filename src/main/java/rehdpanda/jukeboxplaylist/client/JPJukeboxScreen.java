@@ -4,6 +4,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.block.entity.JukeboxBlockEntity;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.text.Text;
@@ -14,6 +15,7 @@ import rehdpanda.jukeboxplaylist.JukeboxPlaylistHolder;
 
 public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
     private static final Identifier TEXTURE = Identifier.of("minecraft", "textures/gui/container/generic_54.png");
+    private static final Identifier GENERIC_54_TEXTURE = Identifier.of("minecraft", "textures/gui/container/generic_54.png");
     private ButtonWidget shuffleButton;
     private ButtonWidget repeatButton;
     private ButtonWidget playStopButton;
@@ -23,7 +25,6 @@ public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
     public JPJukeboxScreen(JPJukeboxScreenHandler handler, PlayerInventory inventory, Text title) {
         super(handler, inventory, title);
         this.backgroundHeight = 166;
-        this.playerInventoryTitleY = this.backgroundHeight - 94;
     }
 
     @Override
@@ -36,27 +37,27 @@ public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
         // Skip Backward button
         this.skipBackwardButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("⏮"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 4));
-        }).dimensions(this.x + 12-offset, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 12-offset, this.y + 42, 30, 20).tooltip(Tooltip.of(Text.literal("Skip Backward"))).build());
 
         // Play/Stop button
         this.playStopButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("▶/■"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 0));
-        }).dimensions(this.x + 44-offset, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 44-offset, this.y + 42, 30, 20).tooltip(Tooltip.of(Text.literal("Play/Stop"))).build());
 
         // Skip Forward button
         this.skipForwardButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("⏭"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 3));
-        }).dimensions(this.x + 76-offset, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 76-offset, this.y + 42, 30, 20).tooltip(Tooltip.of(Text.literal("Skip Forward"))).build());
 
         // Shuffle button
         this.shuffleButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("🔀"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 1));
-        }).dimensions(this.x + 108-offset, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 108-offset, this.y + 42, 30, 20).tooltip(Tooltip.of(Text.literal("Shuffle"))).build());
 
         // Repeat button
         this.repeatButton = this.addDrawableChild(ButtonWidget.builder(Text.literal("🔁"), button -> {
             ClientPlayNetworking.send(new JPInit.JukeboxActionPayload(jukebox.getPos(), 2));
-        }).dimensions(this.x + 140-offset, this.y + 42, 30, 20).build());
+        }).dimensions(this.x + 140-offset, this.y + 42, 30, 20).tooltip(Tooltip.of(Text.literal("Repeat"))).build());
     }
 
     @Override
@@ -64,14 +65,17 @@ public class JPJukeboxScreen extends HandledScreen<JPJukeboxScreenHandler> {
         int i = (this.width - this.backgroundWidth) / 2;
         int j = (this.height - this.backgroundHeight) / 2;
         
-        context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, TEXTURE, i, j, 0.0f, 0.0f, this.backgroundWidth, 35, 256, 256);
+        // Draw the top 35 pixels (title and 1 row of slots)
+        context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, GENERIC_54_TEXTURE, i, j, 0.0f, 0.0f, this.backgroundWidth, 35, 256, 256);
         
-        for (int g = 0; g < 9; g++) {
-            context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, TEXTURE, i, g*5 + 70, 0.0f, 6.0f, this.backgroundWidth, 5, 256, 256);
+        // Fill the button area (35 to 73) with a generic GUI background color
+        // or a blank part of the texture (x=0, y=7 in a container texture is often a blank gray line)
+        for (int k = 0; k < 38; k++) {
+            context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, TEXTURE, i, j + 35 + k, 0.0f, 7.0f, this.backgroundWidth, 1, 256, 256);
         }
-        
-        Identifier DISPENSER_TEXTURE = Identifier.of("minecraft", "textures/gui/container/dispenser.png");
-        context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, DISPENSER_TEXTURE, i, j + 75, 0.0f, 75.0f, this.backgroundWidth, 91, 256, 256);
+
+        // Draw the player inventory part (starting at 73, 73 is the "Inventory" text background)
+        context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, TEXTURE, i, j + 70, 0.0f, 126.0f, this.backgroundWidth, 93, 256, 256);
     }
 
     @Override
